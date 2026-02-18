@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>QR-код не найден - QR-Находка</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+  </head>
+  <body class="found-page">
+    <div class="found-container">
+      <div class="found-card error-card">
+        <div class="found-icon">❓</div>
+        <h1>QR-код не найден</h1>
+        <p class="found-subtitle">
+          К сожалению, этот QR-код не зарегистрирован в системе.
+        </p>
+
+        <div class="error-info">
+          <p><strong>QR-код:</strong> <code>{{ qr_id }}</code></p>
+
+          <h3>Возможные причины:</h3>
+          <ul>
+            <li>🔍 Владелец ещё не зарегистрировал эту вещь</li>
+            <li>❌ QR-код введён неверно</li>
+            <li>🗑️ Вещь была удалена из системы</li>
+          </ul>
+        </div>
+
+        <div class="action-buttons">
+          <a href="https://t.me/{{ bot_username }}" class="telegram-btn">
+            📱 Открыть QR-Находка бот
+          </a>
+          <p class="hint">
+            Попросите владельца вещи зарегистрировать её в боте
+          </p>
+        </div>
+
+        <div class="help-section">
+          <h3>Что делать?</h3>
+          <div class="help-steps">
+            <div class="help-step">
+              <div class="step-num">1</div>
+              <p>Найдите владельца вещи другим способом</p>
+            </div>
+            <div class="help-step">
+              <div class="step-num">2</div>
+              <p>Попросите его зарегистрироваться в QR-Находка</p>
+            </div>
+            <div class="help-step">
+              <div class="step-num">3</div>
+              <p>После регистрации вы сможете связаться через бота</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="promo-section">
+        <h3>Зарегистрируйте свои вещи</h3>
+        <p>Чтобы ваши вещи тоже можно было легко найти!</p>
+        <a href="https://t.me/{{ bot_username }}" class="btn-secondary">
+          🚀 Начать сейчас
+        </a>
+      </div>
+    </div>
+  </body>
+</html>

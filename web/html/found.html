@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Вещь найдена! - QR-Находка</title>
+    <link
+      rel="stylesheet"
+      href="{{ url_for('static', filename='css/style.css') }}"
+    />
+  </head>
+  <body class="found-page">
+    <div class="found-container">
+      <div class="found-card">
+        <div class="found-icon">🎉</div>
+        <h1>Вы нашли чью-то вещь!</h1>
+        <p class="found-subtitle">
+          Спасибо за вашу честность! Владелец сможет связаться с вами через
+          Telegram.
+        </p>
+
+        <div class="item-info-box">
+          <div class="item-emoji">{{ emoji }}</div>
+          <div class="item-details">
+            <h2>{{ item.name }}</h2>
+            <p class="item-type">{{ item.item_type }}</p>
+            {% if item.description %}
+            <p class="item-description">{{ item.description }}</p>
+            {% endif %}
+          </div>
+        </div>
+
+        <a href="{{ bot_link }}" class="telegram-btn">
+          📱 Связаться с владельцем
+        </a>
+
+        <div class="info-text">
+          🔒 Ваши контакты останутся конфиденциальными<br />
+          ⚡ Владелец получит уведомление мгновенно<br />
+          🤝 Общение через защищённый Telegram
+        </div>
+
+        <div class="features-mini">
+          <div class="feature-mini">
+            <div class="feature-mini-icon">⚡</div>
+            <div class="feature-mini-text">Быстро</div>
+          </div>
+          <div class="feature-mini">
+            <div class="feature-mini-icon">🔒</div>
+            <div class="feature-mini-text">Безопасно</div>
+          </div>
+          <div class="feature-mini">
+            <div class="feature-mini-icon">🤝</div>
+            <div class="feature-mini-text">Удобно</div>
+          </div>
+        </div>
+
+        <div class="qr-info">
+          <p>QR-код: <code>{{ qr_id }}</code></p>
+        </div>
+      </div>
+
+      <div class="promo-section">
+        <h3>Тоже хотите защитить свои вещи?</h3>
+        <p>Зарегистрируйте свои вещи в QR-Находка бесплатно!</p>
+        <a
+          href="https://t.me/{{ bot_link.split('?')[0].split('/')[-1] }}"
+          class="btn-secondary"
+        >
+          🚀 Начать использовать
+        </a>
+      </div>
+    </div>
+
+    <script>
+      // Анимация появления
+      document.addEventListener("DOMContentLoaded", () => {
+        const card = document.querySelector(".found-card");
+        card.style.opacity = "0";
+        card.style.transform = "translateY(20px)";
+
+        setTimeout(() => {
+          card.style.transition = "all 0.5s ease";
+          card.style.opacity = "1";
+          card.style.transform = "translateY(0)";
+        }, 100);
+      });
+    </script>
+  </body>
+</html>
