@@ -6,9 +6,8 @@ from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 
-from config.config import ITEM_TYPES, BOT_USERNAME
+from config.config import ITEM_TYPES, BOT_USERNAME, DATABASE_PATH
 from database.models import Database
-from config.config import DATABASE_PATH
 
 logger = logging.getLogger(__name__)
 db = Database(DATABASE_PATH)
@@ -231,6 +230,11 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /myitems - Список моих вещей
 /history - История находок
 /delete - Удалить вещь
+
+**Дополнительные команды:**
+/achievements - Ваши достижения 🏆
+/leaderboard - Таблица лидеров
+/review - Оставить отзыв
 /stats - Статистика проекта
 /help - Эта справка
 
@@ -258,6 +262,7 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [
         [InlineKeyboardButton("➕ Добавить вещь", callback_data='add_item')],
+        [InlineKeyboardButton("🏆 Достижения", callback_data='achievements')],
         [InlineKeyboardButton("ℹ️ Как это работает?", callback_data='how_it_works')]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
@@ -312,6 +317,158 @@ async def history_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += "**🤝 Я нашёл чужие вещи:**\nПока ничего\n"
     
     keyboard = [[InlineKeyboardButton("📋 Мои вещи", callback_data='my_items')]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        text,
+        parse_mode='Markdown',
+        reply_markup=reply_markup
+    )
+
+
+async def achievements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /achievements - достижения пользователя"""
+    user_id = update.effective_user.id
+    
+    if not db.user_exists(user_id):
+        await update.message.reply_text("❌ Вы не зарегистрированы. Используйте /start")
+        return
+    
+    # Получаем достижения
+    achievements = db.get_user_achievements(user_id)
+    
+    # Проверяем новые достижения
+    new_achievements = db.check_achievements(user_id)
+    
+    achievement_names = {
+        'first_item': '🎯 Первая вещь',
+        'five_items': '⭐ Защитник (5 вещей)',
+        'ten_items': '🏆 Мастер организации (10 вещей)',
+        'twentyfive_items': '👑 Легенда (25 вещей)',
+        'first_found': '🎊 Первая находка',
+        'five_found': '🎉 Счастливчик (5 находок)',
+        'helper_bronze': '🥉 Помощник (3 вещи вернул)',
+        'helper_silver': '🥈 Благодетель (10 вещей вернул)',
+        'helper_gold': '🥇 Легенда честности (25 вещей вернул)'
+    }
+    
+    text = "🏆 **Ваши достижения**\n\n"
+    
+    if achievements:
+        text += "**Разблокировано:**\n"
+        for ach in achievements:
+            name = achievement_names.get(ach['achievement_type'], ach['achievement_type'])
+            text += f"{name}\n"
+            text += f"   └ {ach['unlocked_at'][:10]}\n"
+    else:
+        text += "У вас пока нет достижений.\n"
+        text += "Добавьте первую вещь чтобы получить достижение! 🎯\n"
+    
+    # Показываем доступные достижения
+    locked = []
+    unlocked_types = [a['achievement_type'] for a in achievements]
+    
+    for ach_type, name in achievement_names.items():
+        if ach_type not in unlocked_types:
+            locked.append(name)
+    
+    if locked:
+        text += "\n**Ещё не разблокировано:**\n"
+        for name in locked[:5]:  # Показываем первые 5
+            text += f"🔒 {name}\n"
+    
+    keyboard = [
+        [InlineKeyboardButton("➕ Добавить вещь", callback_data='add_item')],
+        [InlineKeyboardButton("📊 Статистика", callback_data='stats')]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await update.message.reply_text(
+        text,
+        parse_mode='Markdown',
+        reply_markup=reply_markup
+    )
+
+
+async def review_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /review - оставить отзыв"""
+    text = """
+⭐ **Оставить отзыв**
+
+Нам очень важно ваше мнение!
+
+Отправьте отзыв в формате:
+`/review 5 Отличный сервис, нашёл рюкзак за 10 минут!`
+
+Где:
+• Первая цифра - оценка от 1 до 5
+• После неё - ваш комментарий
+
+**Примеры:**
+`/review 5 Всё супер!`
+`/review 4 Хороший бот, но хотелось бы больше функций`
+
+Ваши отзывы помогают нам стать лучше! 💙
+"""
+    
+    await update.message.reply_text(text, parse_mode='Markdown')
+
+
+async def leaderboard_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /leaderboard - таблица лидеров"""
+    # Получаем топ помощников
+    conn = db.get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute('''
+        SELECT u.user_id, u.full_name, COUNT(f.id) as helped_count
+        FROM users u
+        LEFT JOIN findings f ON u.user_id = f.finder_id
+        WHERE u.is_active = 1
+        GROUP BY u.user_id
+        HAVING helped_count > 0
+        ORDER BY helped_count DESC
+        LIMIT 10
+    ''')
+    
+    helpers = [dict(row) for row in cursor.fetchall()]
+    
+    # Получаем топ по количеству вещей
+    cursor.execute('''
+        SELECT user_id, full_name, total_items
+        FROM users
+        WHERE is_active = 1 AND total_items > 0
+        ORDER BY total_items DESC
+        LIMIT 10
+    ''')
+    
+    collectors = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    
+    text = "🏆 **Таблица лидеров**\n\n"
+    
+    if helpers:
+        text += "**👼 Самые честные нашедшие:**\n"
+        medals = ['🥇', '🥈', '🥉']
+        for i, user in enumerate(helpers, 1):
+            medal = medals[i-1] if i <= 3 else f"{i}."
+            text += f"{medal} {user['full_name']}: {user['helped_count']} вещей\n"
+    
+    text += "\n"
+    
+    if collectors:
+        text += "**📦 Топ по защищённым вещам:**\n"
+        medals = ['🥇', '🥈', '🥉']
+        for i, user in enumerate(collectors, 1):
+            medal = medals[i-1] if i <= 3 else f"{i}."
+            text += f"{medal} {user['full_name']}: {user['total_items']} вещей\n"
+    
+    text += "\n💡 Ваше место в рейтинге можно увидеть в /stats"
+    
+    keyboard = [
+        [InlineKeyboardButton("📊 Моя статистика", callback_data='stats')],
+        [InlineKeyboardButton("🏆 Мои достижения", callback_data='achievements')]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
@@ -444,6 +601,17 @@ qr.make_image().save('{qr_id}.png')
             reply_markup=reply_markup,
             disable_web_page_preview=True
         )
+        
+        # Проверяем достижения
+        new_achievements = db.check_achievements(user_id)
+        if new_achievements:
+            from utils.notifications import get_achievement_message
+            for achievement in new_achievements:
+                achievement_text = get_achievement_message(achievement)
+                await update.message.reply_text(
+                    achievement_text,
+                    parse_mode='Markdown'
+                )
     else:
         await update.message.reply_text(
             f"❌ QR-код {qr_id} уже зарегистрирован!\n"
@@ -540,21 +708,169 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    user_id = query.from_user.id
+    
+    # Создаем вспомогательный класс для ответов
+    class MessageProxy:
+        def __init__(self, original_message):
+            self.original = original_message
+            self.chat = original_message.chat
+            self.from_user = query.from_user
+            
+        async def reply_text(self, text, **kwargs):
+            try:
+                # Пытаемся отредактировать существующее сообщение
+                await self.original.edit_text(text, **kwargs)
+            except:
+                # Если не получилось, отправляем новое
+                await self.original.reply_text(text, **kwargs)
+    
     if query.data == 'add_item':
-        # Имитируем команду /additem
-        fake_update = Update(update.update_id)
-        fake_update._effective_user = query.from_user
-        fake_update.message = query.message
-        await additem_handler(fake_update, context)
+        # Создаем текст для добавления вещи
+        types_list = '\n'.join([f"• {emoji} {type_name}" 
+                               for type_name, emoji in ITEM_TYPES.items()])
+        
+        text = f"""
+➕ **Добавление новой вещи**
+
+Отправьте информацию в формате:
+`QR_ID название тип`
+
+**Примеры:**
+• `QR001 Рюкзак_Nike рюкзак`
+• `QR002 Ключи_от_дома ключи`
+• `QR003 Сменка_39_размер обувь`
+
+**Доступные типы вещей:**
+{types_list}
+
+**Ваш ID пользователя:** `{user_id}`
+Используйте формат QR001, QR002 и т.д.
+
+💡 После добавления вы получите инструкции по созданию QR-кода!
+"""
+        
+        keyboard = [[InlineKeyboardButton("📋 Мои вещи", callback_data='my_items')]]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.message.edit_text(
+                text,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+        except:
+            await query.message.reply_text(
+                text,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
         
     elif query.data == 'my_items':
-        await myitems_handler(update, context)
+        if not db.user_exists(user_id):
+            await query.message.edit_text("❌ Вы не зарегистрированы. Используйте /start")
+            return
+        
+        items = db.get_user_items(user_id)
+        
+        if not items:
+            text = """
+📋 **Мои вещи**
+
+У вас пока нет зарегистрированных вещей.
+Добавьте первую вещь командой /additem!
+
+💡 **Совет:** Чем больше вещей вы зарегистрируете, тем выше шанс их найти!
+"""
+            keyboard = [[InlineKeyboardButton("➕ Добавить вещь", callback_data='add_item')]]
+        else:
+            text = f"📋 **Мои зарегистрированные вещи:** ({len(items)})\n\n"
+            for i, item in enumerate(items, 1):
+                emoji = ITEM_TYPES.get(item['item_type'], '📦')
+                
+                text += f"{i}. {emoji} **{item['name']}**\n"
+                text += f"   └ QR: `{item['qr_id']}`\n"
+                text += f"   └ Тип: {item['item_type']}\n"
+                if item['times_found'] > 0:
+                    text += f"   └ 🔍 Найдена {item['times_found']} раз(а)\n"
+                text += f"   └ Добавлена: {item['added_at'][:10]}\n\n"
+            
+            keyboard = [
+                [InlineKeyboardButton("➕ Добавить ещё", callback_data='add_item')],
+                [InlineKeyboardButton("📊 Статистика", callback_data='stats')],
+                [InlineKeyboardButton("🗑️ Удалить вещь", callback_data='delete_item')]
+            ]
+        
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.message.edit_text(
+                text,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+        except:
+            await query.message.reply_text(
+                text,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
         
     elif query.data == 'stats':
-        fake_update = Update(update.update_id)
-        fake_update._effective_user = query.from_user
-        fake_update.message = query.message
-        await stats_handler(fake_update, context)
+        stats = db.get_statistics()
+        
+        # Формируем текст с популярными вещами
+        popular_items_text = ""
+        if stats['popular_items']:
+            popular_items_text = "\n**Популярные типы вещей:**\n"
+            for item in stats['popular_items']:
+                emoji = ITEM_TYPES.get(item['item_type'], '📦')
+                popular_items_text += f"{emoji} {item['item_type']}: {item['count']} шт.\n"
+        
+        # Формируем текст с самыми находимыми вещами
+        most_found_text = ""
+        if stats['most_found']:
+            most_found_text = "\n**🏆 Чаще всего находят:**\n"
+            for item in stats['most_found']:
+                most_found_text += f"• {item['name']}: {item['times_found']} раз(а)\n"
+        
+        text = f"""
+📊 **Статистика QR-Находки**
+
+**Общие показатели:**
+👥 Пользователей: **{stats['total_users']}**
+📦 Зарегистрировано вещей: **{stats['total_items']}**
+🔍 Всего находок: **{stats['total_findings']}**
+✨ Активных пользователей: **{stats['active_users']}**
+
+**Средние значения:**
+📈 Вещей на пользователя: **{stats['avg_items_per_user']}**
+{popular_items_text}{most_found_text}
+
+🚀 Присоединяйся к сообществу честных людей!
+
+💡 **Знаете ли вы?**
+Каждая регистрация вещи повышает шанс её вернуть на 80%!
+"""
+        
+        keyboard = [
+            [InlineKeyboardButton("📋 Мои вещи", callback_data='my_items')],
+            [InlineKeyboardButton("➕ Добавить вещь", callback_data='add_item')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.message.edit_text(
+                text,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+        except:
+            await query.message.reply_text(
+                text,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
         
     elif query.data == 'how_it_works':
         text = """
@@ -590,15 +906,23 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         keyboard = [
             [InlineKeyboardButton("➕ Добавить вещь", callback_data='add_item')],
-            [InlineKeyboardButton("📊 Статистика", callback_data='stats')]
+            [InlineKeyboardButton("📊 Статистика", callback_data='stats')],
+            [InlineKeyboardButton("🔙 Назад", callback_data='back_to_menu')]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
         
-        await query.message.reply_text(
-            text, 
-            parse_mode='Markdown',
-            reply_markup=reply_markup
-        )
+        try:
+            await query.message.edit_text(
+                text, 
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+        except:
+            await query.message.reply_text(
+                text, 
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
     
     elif query.data == 'delete_item':
         await query.message.reply_text(
@@ -613,3 +937,52 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 """,
             parse_mode='Markdown'
         )
+    
+    elif query.data == 'back_to_menu':
+        welcome_text = f"""
+👋 **Главное меню**
+
+**Доступные команды:**
+/additem - Добавить новую вещь
+/myitems - Мои вещи
+/history - История находок
+/achievements - Достижения 🏆
+/stats - Статистика
+/help - Помощь
+
+Выберите действие:
+"""
+        
+        keyboard = [
+            [InlineKeyboardButton("➕ Добавить вещь", callback_data='add_item')],
+            [InlineKeyboardButton("📋 Мои вещи", callback_data='my_items')],
+            [InlineKeyboardButton("🏆 Достижения", callback_data='achievements')],
+            [InlineKeyboardButton("ℹ️ Как это работает?", callback_data='how_it_works')]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+        
+        try:
+            await query.message.edit_text(
+                welcome_text,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+        except:
+            await query.message.reply_text(
+                welcome_text,
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+    
+    elif query.data == 'achievements':
+        # Создаем фейковый update для вызова achievements_handler
+        fake_update = Update(update.update_id)
+        fake_update._effective_user = query.from_user
+        fake_update.message = query.message
+        await achievements_handler(fake_update, context)
+    
+    elif query.data == 'leaderboard':
+        fake_update = Update(update.update_id)
+        fake_update._effective_user = query.from_user
+        fake_update.message = query.message
+        await leaderboard_handler(fake_update, context)

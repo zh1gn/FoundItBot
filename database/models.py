@@ -89,6 +89,32 @@ class Database:
             )
         ''')
         
+        # Таблица достижений
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS achievements (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                achievement_type TEXT NOT NULL,
+                unlocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id),
+                UNIQUE(user_id, achievement_type)
+            )
+        ''')
+        
+        # Таблица отзывов
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS reviews (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                finding_id INTEGER,
+                rating INTEGER CHECK(rating >= 1 AND rating <= 5),
+                comment TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users (user_id),
+                FOREIGN KEY (finding_id) REFERENCES findings (id)
+            )
+        ''')
+        
         # Индексы для быстрого поиска
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_items_user ON items(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_items_qr ON items(qr_id)')
@@ -406,3 +432,148 @@ class Database:
         rows = cursor.fetchall()
         conn.close()
         return [dict(row) for row in rows]
+    
+    # === ДОСТИЖЕНИЯ ===
+    
+    def unlock_achievement(self, user_id: int, achievement_type: str) -> bool:
+        """Разблокировать достижение для пользователя"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT OR IGNORE INTO achievements (user_id, achievement_type)
+                VALUES (?, ?)
+            ''', (user_id, achievement_type))
+            success = cursor.rowcount > 0
+            conn.commit()
+            conn.close()
+            
+            if success:
+                logger.info(f"Достижение {achievement_type} разблокировано для {user_id}")
+            
+            return success
+        except Exception as e:
+            logger.error(f"Ошибка разблокировки достижения: {e}")
+            return False
+    
+    def get_user_achievements(self, user_id: int) -> List[Dict]:
+        """Получить все достижения пользователя"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT * FROM achievements 
+            WHERE user_id = ?
+            ORDER BY unlocked_at DESC
+        ''', (user_id,))
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+    
+    def check_achievements(self, user_id: int) -> List[str]:
+        """
+        Проверить и разблокировать новые достижения
+        Возвращает список новых достижений
+        """
+        new_achievements = []
+        
+        # Получаем статистику пользователя
+        user = self.get_user(user_id)
+        if not user:
+            return new_achievements
+        
+        total_items = user['total_items']
+        found_items = user['found_items']
+        
+        # Проверяем достижения за количество вещей
+        if total_items >= 1:
+            if self.unlock_achievement(user_id, 'first_item'):
+                new_achievements.append('first_item')
+        
+        if total_items >= 5:
+            if self.unlock_achievement(user_id, 'five_items'):
+                new_achievements.append('five_items')
+        
+        if total_items >= 10:
+            if self.unlock_achievement(user_id, 'ten_items'):
+                new_achievements.append('ten_items')
+        
+        if total_items >= 25:
+            if self.unlock_achievement(user_id, 'twentyfive_items'):
+                new_achievements.append('twentyfive_items')
+        
+        # Проверяем достижения за находки
+        if found_items >= 1:
+            if self.unlock_achievement(user_id, 'first_found'):
+                new_achievements.append('first_found')
+        
+        if found_items >= 5:
+            if self.unlock_achievement(user_id, 'five_found'):
+                new_achievements.append('five_found')
+        
+        # Проверяем достижения за помощь другим
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT COUNT(*) FROM findings WHERE finder_id = ?
+        ''', (user_id,))
+        helped_count = cursor.fetchone()[0]
+        conn.close()
+        
+        if helped_count >= 3:
+            if self.unlock_achievement(user_id, 'helper_bronze'):
+                new_achievements.append('helper_bronze')
+        
+        if helped_count >= 10:
+            if self.unlock_achievement(user_id, 'helper_silver'):
+                new_achievements.append('helper_silver')
+        
+        if helped_count >= 25:
+            if self.unlock_achievement(user_id, 'helper_gold'):
+                new_achievements.append('helper_gold')
+        
+        return new_achievements
+    
+    # === ОТЗЫВЫ ===
+    
+    def add_review(self, user_id: int, rating: int, comment: str = None, 
+                  finding_id: int = None) -> bool:
+        """Добавить отзыв"""
+        try:
+            conn = self.get_connection()
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO reviews (user_id, finding_id, rating, comment)
+                VALUES (?, ?, ?, ?)
+            ''', (user_id, finding_id, rating, comment))
+            conn.commit()
+            conn.close()
+            logger.info(f"Отзыв добавлен от пользователя {user_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка добавления отзыва: {e}")
+            return False
+    
+    def get_reviews(self, limit: int = 10) -> List[Dict]:
+        """Получить последние отзывы"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('''
+            SELECT r.*, u.full_name 
+            FROM reviews r
+            JOIN users u ON r.user_id = u.user_id
+            WHERE r.rating >= 4
+            ORDER BY r.created_at DESC
+            LIMIT ?
+        ''', (limit,))
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(row) for row in rows]
+    
+    def get_average_rating(self) -> float:
+        """Получить средний рейтинг"""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        cursor.execute('SELECT AVG(rating) FROM reviews')
+        avg = cursor.fetchone()[0]
+        conn.close()
+        return round(avg, 1) if avg else 0.0

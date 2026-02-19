@@ -24,7 +24,10 @@ from bot.handlers import (
     button_handler,
     found_handler,
     delete_handler,
-    history_handler
+    history_handler,
+    achievements_handler,
+    review_handler,
+    leaderboard_handler
 )
 
 # Настройка логирования
@@ -52,6 +55,9 @@ class QRFinderBot:
         self.application.add_handler(CommandHandler("help", help_handler))
         self.application.add_handler(CommandHandler("delete", delete_handler))
         self.application.add_handler(CommandHandler("history", history_handler))
+        self.application.add_handler(CommandHandler("achievements", achievements_handler))
+        self.application.add_handler(CommandHandler("review", review_handler))
+        self.application.add_handler(CommandHandler("leaderboard", leaderboard_handler))
         
         # Обработчик кнопок
         self.application.add_handler(CallbackQueryHandler(button_handler))
