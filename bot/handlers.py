@@ -103,13 +103,13 @@ async def _show_packages_menu(message, user_id: int, edit: bool = False):
         "Каждый пакет включает 1 QR-код на весь срок.\n"
         "QR перестаёт работать после истечения срока.\n\n"
         "🥉 1 месяц — 300 тг\n"
-        "🥈 3 месяца — 500 тг\n"
-        "🥇 6 месяцев — 1000 тг"
+        "🥈 3 месяца — 700 тг\n"
+        "🥇 6 месяцев — 1200 тг"
     )
     keyboard = [
         [InlineKeyboardButton("🥉 1 месяц — 300 тг",    callback_data='buy:month_1')],
-        [InlineKeyboardButton("🥈 3 месяца — 500 тг",   callback_data='buy:month_3')],
-        [InlineKeyboardButton("🥇 6 месяцев — 1000 тг", callback_data='buy:month_6')],
+        [InlineKeyboardButton("🥈 3 месяца — 700 тг",   callback_data='buy:month_3')],
+        [InlineKeyboardButton("🥇 6 месяцев — 1200 тг", callback_data='buy:month_6')],
     ]
     if edit:
         try:
