@@ -1,58 +1,50 @@
 """
-Конфигурация проекта QR-Находка
+Конфигурация проекта QR-Finder
 """
 import os
 from pathlib import Path
 
-# Базовые пути
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR     = Path(__file__).resolve().parent.parent
 DATABASE_DIR = BASE_DIR / 'database'
-STATIC_DIR = BASE_DIR / 'static'
 
-# Telegram Bot
+# Telegram
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '8238565811:AAFwz18jnwCd88AKjcWiTZ19swChIdkrCQ0')
-BOT_USERNAME = os.getenv('BOT_USERNAME', 'QR_FinderBot')
+BOT_USERNAME       = os.getenv('BOT_USERNAME', 'QR_FinderBot')
 
-# База данных
+# БД
 DATABASE_PATH = DATABASE_DIR / 'qr_finder.db'
 
-# Веб-сервер
-WEB_HOST = os.getenv('WEB_HOST', '0.0.0.0')
-WEB_PORT = int(os.getenv('WEB_PORT', 5000))
-SECRET_KEY = os.getenv('SECRET_KEY', 'your-secret-key-change-in-production')
-
-# URL для QR-кодов
-BASE_URL = os.getenv('BASE_URL', f'http://localhost:{WEB_PORT}')
-
-# Настройки QR
-QR_CODE_SIZE = 10
-QR_CODE_BORDER = 2
-
-# Типы вещей с эмодзи
-ITEM_TYPES = {
-    'рюкзак': '🎒',
-    'ключи': '🔑',
-    'обувь': '👟',
-    'куртка': '🧥',
-    'телефон': '📱',
-    'наушники': '🎧',
-    'кошелек': '💰',
-    'очки': '👓',
-    'часы': '⌚',
-    'зонт': '☂️',
-    'книга': '📚',
-    'другое': '📦'
-}
-
 # Логирование
-LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
+LOG_LEVEL  = os.getenv('LOG_LEVEL', 'INFO')
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
-# Бизнес-метрики
-STICKER_COST = 18  # тенге
-STICKER_PRICE = 60  # тенге
-PACKAGE_PRICES = {
-    'mini': {'count': 3, 'price': 300},
-    'standard': {'count': 5, 'price': 400},
-    'maxi': {'count': 10, 'price': 700}
+# Пакеты QR-кодов — каждый даёт 1 QR на весь срок
+QR_PACKAGES = {
+    'month_1': {
+        'label': '1 месяц — 300 тг',
+        'price': 300,
+        'days':  30,
+        'emoji': '🥉',
+    },
+    'month_3': {
+        'label': '3 месяца — 500 тг',
+        'price': 500,
+        'days':  90,
+        'emoji': '🥈',
+    },
+    'month_6': {
+        'label': '6 месяцев — 1000 тг',
+        'price': 1000,
+        'days':  180,
+        'emoji': '🥇',
+    },
 }
+
+# Обратная совместимость
+SUBSCRIPTION_PLANS = QR_PACKAGES
+
+# Реквизиты оплаты
+PAYMENT_DETAILS = os.getenv('PAYMENT_DETAILS', 'Kaspi: +7XXXXXXXXXX')
+
+# ID администратора
+ADMIN_ID = int(os.getenv('ADMIN_ID', '1403802771'))
