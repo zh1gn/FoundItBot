@@ -2,6 +2,7 @@
 Модели базы данных для QR-Находка
 """
 import sqlite3
+import threading
 from datetime import datetime
 from typing import Optional, List, Dict
 from pathlib import Path
@@ -12,24 +13,30 @@ logger = logging.getLogger(__name__)
 
 class Database:
     """Класс для работы с базой данных"""
-    
+
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._local = threading.local()
         self.init_database()
-    
-    def get_connection(self):
-        """Получить подключение к БД"""
-        conn = sqlite3.connect(self.db_path)
-        conn.row_factory = sqlite3.Row
-        return conn
-    
+
+    def get_connection(self) -> sqlite3.Connection:
+        """Получить соединение для текущего потока (создаётся один раз на поток)"""
+        if not hasattr(self._local, 'conn') or self._local.conn is None:
+            conn = sqlite3.connect(self.db_path, check_same_thread=False, timeout=30)
+            conn.row_factory = sqlite3.Row
+            # WAL-режим: несколько читателей + один писатель без блокировок
+            conn.execute('PRAGMA journal_mode=WAL')
+            conn.execute('PRAGMA synchronous=NORMAL')
+            conn.execute('PRAGMA busy_timeout=10000')
+            self._local.conn = conn
+        return self._local.conn
+
     def init_database(self):
         """Инициализация базы данных"""
         conn = self.get_connection()
         cursor = conn.cursor()
-        
-        # Таблица пользователей
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -42,12 +49,11 @@ class Database:
                 found_items INTEGER DEFAULT 0
             )
         ''')
-        
-        # Таблица вещей
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS items (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                qr_id TEXT UNIQUE NOT NULL,
+                qr_id TEXT NOT NULL,
                 user_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
                 item_type TEXT NOT NULL,
@@ -55,11 +61,11 @@ class Database:
                 added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 is_active INTEGER DEFAULT 1,
                 times_found INTEGER DEFAULT 0,
-                FOREIGN KEY (user_id) REFERENCES users (user_id)
+                FOREIGN KEY (user_id) REFERENCES users (user_id),
+                UNIQUE(qr_id, user_id)
             )
         ''')
-        
-        # Таблица находок
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS findings (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -76,8 +82,7 @@ class Database:
                 FOREIGN KEY (finder_id) REFERENCES users (user_id)
             )
         ''')
-        
-        # Таблица статистики
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS statistics (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -88,8 +93,7 @@ class Database:
                 active_users INTEGER DEFAULT 0
             )
         ''')
-        
-        # Таблица достижений
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS achievements (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,8 +104,7 @@ class Database:
                 UNIQUE(user_id, achievement_type)
             )
         ''')
-        
-        # Таблица отзывов
+
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS reviews (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,30 +117,61 @@ class Database:
                 FOREIGN KEY (finding_id) REFERENCES findings (id)
             )
         ''')
-        
-        # Индексы для быстрого поиска
+
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_items_user ON items(user_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_items_qr ON items(qr_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_findings_owner ON findings(owner_id)')
         cursor.execute('CREATE INDEX IF NOT EXISTS idx_findings_qr ON findings(qr_id)')
-        
+
+        # Migration: if items table has global UNIQUE on qr_id, recreate with per-user unique
+        cursor.execute("PRAGMA index_list(items)")
+        indexes = [dict(row) for row in cursor.fetchall()]
+        has_global_qr_unique = any(
+            idx['unique'] == 1 and 'qr_id' in idx['name'] and 'user' not in idx['name']
+            for idx in indexes
+        )
+        if has_global_qr_unique:
+            try:
+                cursor.execute('ALTER TABLE items RENAME TO items_old')
+                cursor.execute('''
+                    CREATE TABLE items (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        qr_id TEXT NOT NULL,
+                        user_id INTEGER NOT NULL,
+                        name TEXT NOT NULL,
+                        item_type TEXT NOT NULL,
+                        description TEXT,
+                        added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        is_active INTEGER DEFAULT 1,
+                        times_found INTEGER DEFAULT 0,
+                        FOREIGN KEY (user_id) REFERENCES users (user_id),
+                        UNIQUE(qr_id, user_id)
+                    )
+                ''')
+                cursor.execute('INSERT INTO items SELECT * FROM items_old')
+                cursor.execute('DROP TABLE items_old')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_items_user ON items(user_id)')
+                cursor.execute('CREATE INDEX IF NOT EXISTS idx_items_qr ON items(qr_id)')
+                conn.commit()
+                logger.info("Миграция items: UNIQUE(qr_id) -> UNIQUE(qr_id, user_id)")
+            except Exception as e:
+                logger.error(f"Ошибка миграции items: {e}")
+                conn.rollback()
+
         conn.commit()
-        conn.close()
         logger.info("База данных инициализирована")
-    
+
     # === ОПЕРАЦИИ С ПОЛЬЗОВАТЕЛЯМИ ===
-    
+
     def create_user(self, user_id: int, username: str, full_name: str, phone: str = None) -> bool:
         """Создать нового пользователя"""
         try:
             conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
+            conn.execute('''
                 INSERT INTO users (user_id, username, full_name, phone)
                 VALUES (?, ?, ?, ?)
             ''', (user_id, username, full_name, phone))
             conn.commit()
-            conn.close()
             logger.info(f"Создан пользователь: {user_id} - {full_name}")
             return True
         except sqlite3.IntegrityError:
@@ -146,153 +180,130 @@ class Database:
         except Exception as e:
             logger.error(f"Ошибка создания пользователя: {e}")
             return False
-    
+
     def get_user(self, user_id: int) -> Optional[Dict]:
         """Получить пользователя по ID"""
         conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
+        cursor = conn.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
         row = cursor.fetchone()
-        conn.close()
         return dict(row) if row else None
-    
+
     def user_exists(self, user_id: int) -> bool:
         """Проверить существование пользователя"""
         return self.get_user(user_id) is not None
-    
+
     def update_user_stats(self, user_id: int, total_items: int = None, found_items: int = None):
         """Обновить статистику пользователя"""
         conn = self.get_connection()
-        cursor = conn.cursor()
-        
         if total_items is not None:
-            cursor.execute('UPDATE users SET total_items = ? WHERE user_id = ?', 
+            conn.execute('UPDATE users SET total_items = ? WHERE user_id = ?',
                          (total_items, user_id))
-        
         if found_items is not None:
-            cursor.execute('UPDATE users SET found_items = found_items + ? WHERE user_id = ?', 
+            conn.execute('UPDATE users SET found_items = found_items + ? WHERE user_id = ?',
                          (found_items, user_id))
-        
         conn.commit()
-        conn.close()
-    
+
     # === ОПЕРАЦИИ С ВЕЩАМИ ===
-    
-    def create_item(self, qr_id: str, user_id: int, name: str, 
-                   item_type: str, description: str = None) -> bool:
+
+    def create_item(self, qr_id: str, user_id: int, name: str,
+                    item_type: str, description: str = None) -> bool:
         """Создать новую вещь"""
         try:
             conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
+            conn.execute('''
                 INSERT INTO items (qr_id, user_id, name, item_type, description)
                 VALUES (?, ?, ?, ?, ?)
             ''', (qr_id, user_id, name, item_type, description))
+            # Обновляем счётчик в той же транзакции
+            conn.execute('''
+                UPDATE users SET total_items = (
+                    SELECT COUNT(*) FROM items WHERE user_id = ? AND is_active = 1
+                ) WHERE user_id = ?
+            ''', (user_id, user_id))
             conn.commit()
-            conn.close()
-            
-            # Обновляем счетчик вещей пользователя
-            self.update_user_stats(user_id, self.count_user_items(user_id))
-            
             logger.info(f"Создана вещь: {qr_id} - {name}")
             return True
         except sqlite3.IntegrityError:
-            logger.warning(f"QR-код {qr_id} уже существует")
+            logger.warning(f"QR-код {qr_id} уже существует у пользователя {user_id}")
             return False
         except Exception as e:
             logger.error(f"Ошибка создания вещи: {e}")
             return False
-    
+
     def get_item_by_qr(self, qr_id: str) -> Optional[Dict]:
         """Получить вещь по QR-коду"""
         conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT * FROM items WHERE qr_id = ? AND is_active = 1', (qr_id,))
+        cursor = conn.execute('SELECT * FROM items WHERE qr_id = ? AND is_active = 1', (qr_id,))
         row = cursor.fetchone()
-        conn.close()
         return dict(row) if row else None
-    
+
     def get_user_items(self, user_id: int) -> List[Dict]:
         """Получить все вещи пользователя"""
         conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT * FROM items 
+        cursor = conn.execute('''
+            SELECT * FROM items
             WHERE user_id = ? AND is_active = 1
             ORDER BY added_at DESC
         ''', (user_id,))
-        rows = cursor.fetchall()
-        conn.close()
-        return [dict(row) for row in rows]
-    
+        return [dict(row) for row in cursor.fetchall()]
+
     def count_user_items(self, user_id: int) -> int:
         """Подсчитать количество вещей пользователя"""
         conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT COUNT(*) FROM items WHERE user_id = ? AND is_active = 1', 
-                      (user_id,))
-        count = cursor.fetchone()[0]
-        conn.close()
-        return count
-    
+        cursor = conn.execute(
+            'SELECT COUNT(*) FROM items WHERE user_id = ? AND is_active = 1', (user_id,))
+        return cursor.fetchone()[0]
+
     def delete_item(self, qr_id: str, user_id: int) -> bool:
         """Удалить вещь (мягкое удаление)"""
         try:
             conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
-                UPDATE items SET is_active = 0 
+            conn.execute('''
+                UPDATE items SET is_active = 0
                 WHERE qr_id = ? AND user_id = ?
             ''', (qr_id, user_id))
+            conn.execute('''
+                UPDATE users SET total_items = (
+                    SELECT COUNT(*) FROM items WHERE user_id = ? AND is_active = 1
+                ) WHERE user_id = ?
+            ''', (user_id, user_id))
             conn.commit()
-            conn.close()
-            
-            # Обновляем счетчик
-            self.update_user_stats(user_id, self.count_user_items(user_id))
             return True
         except Exception as e:
             logger.error(f"Ошибка удаления вещи: {e}")
             return False
-    
+
     def increment_item_found_count(self, qr_id: str):
         """Увеличить счетчик находок вещи"""
         conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('UPDATE items SET times_found = times_found + 1 WHERE qr_id = ?', 
-                      (qr_id,))
+        conn.execute('UPDATE items SET times_found = times_found + 1 WHERE qr_id = ?', (qr_id,))
         conn.commit()
-        conn.close()
-    
+
     # === ОПЕРАЦИИ С НАХОДКАМИ ===
-    
-    def create_finding(self, qr_id: str, owner_id: int, finder_id: int, 
-                      finder_name: str, location: str = None, notes: str = None) -> bool:
+
+    def create_finding(self, qr_id: str, owner_id: int, finder_id: int,
+                       finder_name: str, location: str = None, notes: str = None) -> bool:
         """Создать запись о находке"""
         try:
             conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
+            conn.execute('''
                 INSERT INTO findings (qr_id, owner_id, finder_id, finder_name, location, notes)
                 VALUES (?, ?, ?, ?, ?, ?)
             ''', (qr_id, owner_id, finder_id, finder_name, location, notes))
+            conn.execute(
+                'UPDATE items SET times_found = times_found + 1 WHERE qr_id = ?', (qr_id,))
+            conn.execute(
+                'UPDATE users SET found_items = found_items + 1 WHERE user_id = ?', (owner_id,))
             conn.commit()
-            conn.close()
-            
-            # Обновляем счетчики
-            self.increment_item_found_count(qr_id)
-            self.update_user_stats(owner_id, found_items=1)
-            
             logger.info(f"Создана находка: {qr_id} найдена {finder_name}")
             return True
         except Exception as e:
             logger.error(f"Ошибка создания находки: {e}")
             return False
-    
+
     def get_user_findings(self, user_id: int, as_owner: bool = True) -> List[Dict]:
         """Получить находки пользователя (как владельца или нашедшего)"""
         conn = self.get_connection()
-        cursor = conn.cursor()
-        
         if as_owner:
             query = '''
                 SELECT f.*, i.name as item_name, i.item_type
@@ -309,74 +320,49 @@ class Database:
                 WHERE f.finder_id = ?
                 ORDER BY f.found_at DESC
             '''
-        
-        cursor.execute(query, (user_id,))
-        rows = cursor.fetchall()
-        conn.close()
-        return [dict(row) for row in rows]
-    
+        cursor = conn.execute(query, (user_id,))
+        return [dict(row) for row in cursor.fetchall()]
+
     def update_finding_status(self, finding_id: int, status: str) -> bool:
         """Обновить статус находки (pending, returned, lost)"""
         try:
             conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('UPDATE findings SET status = ? WHERE id = ?', (status, finding_id))
+            conn.execute('UPDATE findings SET status = ? WHERE id = ?', (status, finding_id))
             conn.commit()
-            conn.close()
             return True
         except Exception as e:
             logger.error(f"Ошибка обновления статуса находки: {e}")
             return False
-    
+
     # === СТАТИСТИКА ===
-    
+
     def get_statistics(self) -> Dict:
         """Получить общую статистику"""
         conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        # Общее количество пользователей
-        cursor.execute('SELECT COUNT(*) FROM users WHERE is_active = 1')
-        total_users = cursor.fetchone()[0]
-        
-        # Общее количество вещей
-        cursor.execute('SELECT COUNT(*) FROM items WHERE is_active = 1')
-        total_items = cursor.fetchone()[0]
-        
-        # Общее количество находок
-        cursor.execute('SELECT COUNT(*) FROM findings')
-        total_findings = cursor.fetchone()[0]
-        
-        # Активные пользователи за последние 7 дней
-        cursor.execute('''
-            SELECT COUNT(DISTINCT user_id) FROM items 
+
+        total_users = conn.execute(
+            'SELECT COUNT(*) FROM users WHERE is_active = 1').fetchone()[0]
+        total_items = conn.execute(
+            'SELECT COUNT(*) FROM items WHERE is_active = 1').fetchone()[0]
+        total_findings = conn.execute(
+            'SELECT COUNT(*) FROM findings').fetchone()[0]
+        active_users = conn.execute('''
+            SELECT COUNT(DISTINCT user_id) FROM items
             WHERE added_at >= datetime('now', '-7 days')
-        ''')
-        active_users = cursor.fetchone()[0]
-        
-        # Популярные типы вещей
-        cursor.execute('''
-            SELECT item_type, COUNT(*) as count 
-            FROM items 
-            WHERE is_active = 1
-            GROUP BY item_type 
-            ORDER BY count DESC 
-            LIMIT 5
-        ''')
-        popular_items = [dict(row) for row in cursor.fetchall()]
-        
-        # Вещи с наибольшим количеством находок
-        cursor.execute('''
-            SELECT name, times_found 
-            FROM items 
-            WHERE is_active = 1 AND times_found > 0
-            ORDER BY times_found DESC 
-            LIMIT 5
-        ''')
-        most_found = [dict(row) for row in cursor.fetchall()]
-        
-        conn.close()
-        
+        ''').fetchone()[0]
+
+        popular_items = [dict(r) for r in conn.execute('''
+            SELECT item_type, COUNT(*) as count
+            FROM items WHERE is_active = 1
+            GROUP BY item_type ORDER BY count DESC LIMIT 5
+        ''').fetchall()]
+
+        most_found = [dict(r) for r in conn.execute('''
+            SELECT name, times_found
+            FROM items WHERE is_active = 1 AND times_found > 0
+            ORDER BY times_found DESC LIMIT 5
+        ''').fetchall()]
+
         return {
             'total_users': total_users,
             'total_items': total_items,
@@ -386,14 +372,12 @@ class Database:
             'popular_items': popular_items,
             'most_found': most_found
         }
-    
+
     def get_daily_stats(self, days: int = 7) -> List[Dict]:
         """Получить статистику по дням"""
         conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute('''
-            SELECT 
+        cursor = conn.execute('''
+            SELECT
                 date(registered_at) as date,
                 COUNT(*) as new_users
             FROM users
@@ -401,179 +385,125 @@ class Database:
             GROUP BY date(registered_at)
             ORDER BY date DESC
         ''', (days,))
-        
-        stats = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-        return stats
-    
+        return [dict(row) for row in cursor.fetchall()]
+
     # === ПОИСК ===
-    
+
     def search_items(self, query: str, user_id: int = None) -> List[Dict]:
         """Поиск вещей по названию"""
         conn = self.get_connection()
-        cursor = conn.cursor()
-        
         if user_id:
-            cursor.execute('''
-                SELECT * FROM items 
-                WHERE user_id = ? AND is_active = 1 
+            cursor = conn.execute('''
+                SELECT * FROM items
+                WHERE user_id = ? AND is_active = 1
                 AND (name LIKE ? OR description LIKE ?)
                 ORDER BY added_at DESC
             ''', (user_id, f'%{query}%', f'%{query}%'))
         else:
-            cursor.execute('''
-                SELECT * FROM items 
-                WHERE is_active = 1 
+            cursor = conn.execute('''
+                SELECT * FROM items
+                WHERE is_active = 1
                 AND (name LIKE ? OR description LIKE ?)
-                ORDER BY added_at DESC
-                LIMIT 50
+                ORDER BY added_at DESC LIMIT 50
             ''', (f'%{query}%', f'%{query}%'))
-        
-        rows = cursor.fetchall()
-        conn.close()
-        return [dict(row) for row in rows]
-    
+        return [dict(row) for row in cursor.fetchall()]
+
     # === ДОСТИЖЕНИЯ ===
-    
+
     def unlock_achievement(self, user_id: int, achievement_type: str) -> bool:
         """Разблокировать достижение для пользователя"""
         try:
             conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
+            cursor = conn.execute('''
                 INSERT OR IGNORE INTO achievements (user_id, achievement_type)
                 VALUES (?, ?)
             ''', (user_id, achievement_type))
             success = cursor.rowcount > 0
             conn.commit()
-            conn.close()
-            
             if success:
                 logger.info(f"Достижение {achievement_type} разблокировано для {user_id}")
-            
             return success
         except Exception as e:
             logger.error(f"Ошибка разблокировки достижения: {e}")
             return False
-    
+
     def get_user_achievements(self, user_id: int) -> List[Dict]:
         """Получить все достижения пользователя"""
         conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT * FROM achievements 
+        cursor = conn.execute('''
+            SELECT * FROM achievements
             WHERE user_id = ?
             ORDER BY unlocked_at DESC
         ''', (user_id,))
-        rows = cursor.fetchall()
-        conn.close()
-        return [dict(row) for row in rows]
-    
+        return [dict(row) for row in cursor.fetchall()]
+
     def check_achievements(self, user_id: int) -> List[str]:
-        """
-        Проверить и разблокировать новые достижения
-        Возвращает список новых достижений
-        """
+        """Проверить и разблокировать новые достижения. Возвращает список новых."""
         new_achievements = []
-        
-        # Получаем статистику пользователя
+
         user = self.get_user(user_id)
         if not user:
             return new_achievements
-        
+
         total_items = user['total_items']
         found_items = user['found_items']
-        
-        # Проверяем достижения за количество вещей
-        if total_items >= 1:
-            if self.unlock_achievement(user_id, 'first_item'):
-                new_achievements.append('first_item')
-        
-        if total_items >= 5:
-            if self.unlock_achievement(user_id, 'five_items'):
-                new_achievements.append('five_items')
-        
-        if total_items >= 10:
-            if self.unlock_achievement(user_id, 'ten_items'):
-                new_achievements.append('ten_items')
-        
-        if total_items >= 25:
-            if self.unlock_achievement(user_id, 'twentyfive_items'):
-                new_achievements.append('twentyfive_items')
-        
-        # Проверяем достижения за находки
-        if found_items >= 1:
-            if self.unlock_achievement(user_id, 'first_found'):
-                new_achievements.append('first_found')
-        
-        if found_items >= 5:
-            if self.unlock_achievement(user_id, 'five_found'):
-                new_achievements.append('five_found')
-        
-        # Проверяем достижения за помощь другим
+
+        for threshold, key in [(1, 'first_item'), (5, 'five_items'),
+                                (10, 'ten_items'), (25, 'twentyfive_items')]:
+            if total_items >= threshold:
+                if self.unlock_achievement(user_id, key):
+                    new_achievements.append(key)
+
+        for threshold, key in [(1, 'first_found'), (5, 'five_found')]:
+            if found_items >= threshold:
+                if self.unlock_achievement(user_id, key):
+                    new_achievements.append(key)
+
         conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT COUNT(*) FROM findings WHERE finder_id = ?
-        ''', (user_id,))
-        helped_count = cursor.fetchone()[0]
-        conn.close()
-        
-        if helped_count >= 3:
-            if self.unlock_achievement(user_id, 'helper_bronze'):
-                new_achievements.append('helper_bronze')
-        
-        if helped_count >= 10:
-            if self.unlock_achievement(user_id, 'helper_silver'):
-                new_achievements.append('helper_silver')
-        
-        if helped_count >= 25:
-            if self.unlock_achievement(user_id, 'helper_gold'):
-                new_achievements.append('helper_gold')
-        
+        helped_count = conn.execute(
+            'SELECT COUNT(*) FROM findings WHERE finder_id = ?', (user_id,)
+        ).fetchone()[0]
+
+        for threshold, key in [(3, 'helper_bronze'), (10, 'helper_silver'), (25, 'helper_gold')]:
+            if helped_count >= threshold:
+                if self.unlock_achievement(user_id, key):
+                    new_achievements.append(key)
+
         return new_achievements
-    
+
     # === ОТЗЫВЫ ===
-    
-    def add_review(self, user_id: int, rating: int, comment: str = None, 
-                  finding_id: int = None) -> bool:
+
+    def add_review(self, user_id: int, rating: int, comment: str = None,
+                   finding_id: int = None) -> bool:
         """Добавить отзыв"""
         try:
             conn = self.get_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
+            conn.execute('''
                 INSERT INTO reviews (user_id, finding_id, rating, comment)
                 VALUES (?, ?, ?, ?)
             ''', (user_id, finding_id, rating, comment))
             conn.commit()
-            conn.close()
             logger.info(f"Отзыв добавлен от пользователя {user_id}")
             return True
         except Exception as e:
             logger.error(f"Ошибка добавления отзыва: {e}")
             return False
-    
+
     def get_reviews(self, limit: int = 10) -> List[Dict]:
         """Получить последние отзывы"""
         conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('''
-            SELECT r.*, u.full_name 
+        cursor = conn.execute('''
+            SELECT r.*, u.full_name
             FROM reviews r
             JOIN users u ON r.user_id = u.user_id
             WHERE r.rating >= 4
             ORDER BY r.created_at DESC
             LIMIT ?
         ''', (limit,))
-        rows = cursor.fetchall()
-        conn.close()
-        return [dict(row) for row in rows]
-    
+        return [dict(row) for row in cursor.fetchall()]
+
     def get_average_rating(self) -> float:
         """Получить средний рейтинг"""
         conn = self.get_connection()
-        cursor = conn.cursor()
-        cursor.execute('SELECT AVG(rating) FROM reviews')
-        avg = cursor.fetchone()[0]
-        conn.close()
+        avg = conn.execute('SELECT AVG(rating) FROM reviews').fetchone()[0]
         return round(avg, 1) if avg else 0.0
