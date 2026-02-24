@@ -18,9 +18,9 @@ STAR_MAP = {1: '1 zvezda', 2: '2 zvezdy', 3: '3 zvezdy', 4: '4 zvezdy', 5: '5 zv
 STAR_EMO = {1: '\u2b50', 2: '\u2b50\u2b50', 3: '\u2b50\u2b50\u2b50', 4: '\u2b50\u2b50\u2b50\u2b50', 5: '\u2b50\u2b50\u2b50\u2b50\u2b50'}
 
 
-# ─────────────────────────────────────────────────────────────────────
-# /start
-# ─────────────────────────────────────────────────────────────────────
+
+
+
 
 async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
@@ -54,7 +54,7 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/help \u2014 pomoshch'",
     ]
 
-    # We'll write the actual Russian text directly in a separate approach
+    
     text = (
         f"{'🎉 ' if is_new else '👋 '}{user.first_name}!\n\n"
         f"{'Добро пожаловать в' if is_new else 'С возвращением в'} QR-Finder.\n\n"
@@ -77,9 +77,9 @@ async def start_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# ─────────────────────────────────────────────────────────────────────
-# /buy
-# ─────────────────────────────────────────────────────────────────────
+
+
+
 
 async def buy_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -143,9 +143,9 @@ async def _handle_buy_plan(query, user_id: int, plan_key: str):
         await query.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Создание QR
-# ─────────────────────────────────────────────────────────────────────
+
+
+
 
 async def additem_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -228,9 +228,9 @@ async def _create_qr_for_user(message, context, user_id: int, edit: bool = False
     )
 
 
-# ─────────────────────────────────────────────────────────────────────
-# /myitems
-# ─────────────────────────────────────────────────────────────────────
+
+
+
 
 def _build_items_text(items: list, user_id: int) -> tuple:
     pkg = db.get_active_package(user_id)
@@ -289,9 +289,9 @@ async def myitems_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await message.reply_text(text, reply_markup=markup)
 
 
-# ─────────────────────────────────────────────────────────────────────
-# /history
-# ─────────────────────────────────────────────────────────────────────
+
+
+
 
 async def history_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -327,9 +327,9 @@ async def history_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# ─────────────────────────────────────────────────────────────────────
-# /review
-# ─────────────────────────────────────────────────────────────────────
+
+
+
 
 async def review_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id   = update.effective_user.id
@@ -393,9 +393,9 @@ async def review_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# ─────────────────────────────────────────────────────────────────────
-# /stats
-# ─────────────────────────────────────────────────────────────────────
+
+
+
 
 async def stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     s = db.get_statistics()
@@ -414,9 +414,9 @@ async def stats_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# ─────────────────────────────────────────────────────────────────────
-# /help
-# ─────────────────────────────────────────────────────────────────────
+
+
+
 
 async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
@@ -441,9 +441,9 @@ async def help_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
-# ─────────────────────────────────────────────────────────────────────
-# /delete
-# ─────────────────────────────────────────────────────────────────────
+
+
+
 
 async def delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
@@ -451,7 +451,7 @@ async def delete_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# Заглушки удалённых команд
+
 async def achievements_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Эта функция недоступна.")
 
@@ -459,9 +459,9 @@ async def leaderboard_handler(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text("Эта функция недоступна.")
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Обработчик текста
-# ─────────────────────────────────────────────────────────────────────
+
+
+
 
 async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -507,9 +507,9 @@ async def message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ─────────────────────────────────────────────────────────────────────
-# found_handler
-# ─────────────────────────────────────────────────────────────────────
+
+
+
 
 async def found_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, qr_id: str):
     finder          = update.effective_user
@@ -582,9 +582,9 @@ async def found_handler(update: Update, context: ContextTypes.DEFAULT_TYPE, qr_i
         logger.error(f"Ошибка уведомления владельца: {e}")
 
 
-# ─────────────────────────────────────────────────────────────────────
-# button_handler
-# ─────────────────────────────────────────────────────────────────────
+
+
+
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query   = update.callback_query
@@ -598,7 +598,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception:
             await query.message.reply_text(text, reply_markup=markup, **kwargs)
 
-    # ── Пакеты ────────────────────────────────────────────────────────
+    
     if data in ('packages', 'subscription'):
         await _show_packages_menu(query.message, user_id, edit=True)
 
@@ -639,11 +639,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Главное меню", callback_data='back_to_menu')]])
         )
 
-    # ── Создать QR ────────────────────────────────────────────────────
+    
     elif data == 'add_item':
         await _create_qr_for_user(query.message, context, user_id, edit=True)
 
-    # ── Мои QR ────────────────────────────────────────────────────────
+    
     elif data == 'my_items':
         if not db.user_exists(user_id):
             await edit_or_send("Сначала запустите бот: /start")
@@ -652,7 +652,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text, markup = _build_items_text(items, user_id)
         await edit_or_send(text, markup)
 
-    # ── Конкретный QR ─────────────────────────────────────────────────
+    
     elif data.startswith('item_qr:'):
         qr_id = data.split(':', 1)[1]
         item  = db.get_item_by_qr(qr_id)
@@ -674,7 +674,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await edit_or_send(text, InlineKeyboardMarkup(keyboard), disable_web_page_preview=True)
 
-    # ── QR-изображение ────────────────────────────────────────────────
+    
     elif data.startswith('send_qr:'):
         qr_id = data.split(':', 1)[1]
         item  = db.get_item_by_qr(qr_id)
@@ -691,7 +691,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )
 
-    # ── Удаление ──────────────────────────────────────────────────────
+    
     elif data.startswith('confirm_delete:'):
         qr_id = data.split(':', 1)[1]
         if not db.get_item_by_qr(qr_id):
@@ -714,7 +714,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text, markup = _build_items_text(items, user_id)
         await edit_or_send(text, markup)
 
-    # ── Отзыв через кнопки ────────────────────────────────────────────
+    
     elif data.startswith('review:'):
         rating = int(data.split(':', 1)[1])
         stars  = STAR_EMO[rating]
@@ -725,7 +725,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Если без комментария — отправьте «-»"
         )
 
-    # ── Как это работает ──────────────────────────────────────────────
+    
     elif data == 'how_it_works':
         text = (
             "ℹ️ Как работает QR-Finder?\n\n"
@@ -747,7 +747,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await edit_or_send(text, InlineKeyboardMarkup(keyboard))
 
-    # ── Статистика ────────────────────────────────────────────────────
+    
     elif data == 'stats':
         s = db.get_statistics()
         rating_line = (
@@ -766,7 +766,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardMarkup([[InlineKeyboardButton("◀️ Назад", callback_data='back_to_menu')]])
         )
 
-    # ── Главное меню ──────────────────────────────────────────────────
+    
     elif data == 'back_to_menu':
         text = (
             "👋 QR-Finder — главное меню\n\n"

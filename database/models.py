@@ -35,15 +35,15 @@ class Database:
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self.init_db()
 
-    # ──────────────────────────────────────────────
-    # Инициализация
-    # ──────────────────────────────────────────────
+    
+    
+    
 
     def init_db(self):
         conn = self.get_connection()
         cur  = conn.cursor()
 
-        # Пользователи
+        
         cur.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id     INTEGER PRIMARY KEY,
@@ -55,7 +55,7 @@ class Database:
             )
         ''')
 
-        # Подписки
+        
         cur.execute('''
             CREATE TABLE IF NOT EXISTS subscriptions (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,7 +69,7 @@ class Database:
             )
         ''')
 
-        # Вещи — без названия, только QR ID и срок
+        
         cur.execute('''
             CREATE TABLE IF NOT EXISTS items (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,7 +83,7 @@ class Database:
             )
         ''')
 
-        # Находки
+        
         cur.execute('''
             CREATE TABLE IF NOT EXISTS findings (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,7 +97,7 @@ class Database:
             )
         ''')
 
-        # Ожидающие подтверждения платежи
+        
         cur.execute('''
             CREATE TABLE IF NOT EXISTS pending_payments (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,7 +107,7 @@ class Database:
             )
         ''')
 
-        # Отзывы
+        
         cur.execute('''
             CREATE TABLE IF NOT EXISTS reviews (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,14 +124,14 @@ class Database:
         conn.close()
         logger.info("База данных инициализирована")
 
-    # ──────────────────────────────────────────────
+    
 
     def get_connection(self):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         return conn
 
-    # ── Пользователи ──────────────────────────────
+    
 
     def user_exists(self, user_id: int) -> bool:
         conn = self.get_connection()
@@ -159,7 +159,7 @@ class Database:
         conn.close()
         return dict(row) if row else None
 
-    # ── Подписки ──────────────────────────────────
+    
 
     def get_active_subscription(self, user_id: int) -> Optional[dict]:
         conn = self.get_connection()
@@ -235,7 +235,7 @@ class Database:
         conn.commit()
         conn.close()
 
-    # ── Вещи ──────────────────────────────────────
+    
 
     def _generate_qr_id(self) -> str:
         conn = self.get_connection()
@@ -309,7 +309,7 @@ class Database:
         url = f"https://t.me/{bot_username}?start=found_{qr_id}"
         return _qr_image_bytes(url)
 
-    # ── Находки ───────────────────────────────────
+    
 
     def create_finding(self, qr_id: str, owner_id: int,
                        finder_id: int, finder_name: str,
@@ -356,7 +356,7 @@ class Database:
         """Алиас для get_active_subscription — используется в handlers."""
         return self.get_active_subscription(user_id)
 
-    # ── Отзывы ────────────────────────────────────
+    
 
     def add_review(self, user_id: int, full_name: str, rating: int, review_text: str) -> bool:
         conn = self.get_connection()
@@ -374,7 +374,7 @@ class Database:
         finally:
             conn.close()
 
-    # ── Статистика ────────────────────────────────
+    
 
     def get_statistics(self) -> dict:
         conn = self.get_connection()

@@ -39,10 +39,6 @@ logger = logging.getLogger(__name__)
 db = Database(DATABASE_PATH)
 
 
-# ──────────────────────────────────────────────
-# Команды администратора
-# ──────────────────────────────────────────────
-
 async def activate_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """/activate <user_id> <plan> — активировать подписку"""
     caller_id = update.effective_user.id
@@ -120,10 +116,6 @@ async def pending_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     await update.message.reply_text(text)
 
-
-# ──────────────────────────────────────────────
-# Главный класс
-# ──────────────────────────────────────────────
 
 class QRFinderBot:
     def __init__(self, token: str):

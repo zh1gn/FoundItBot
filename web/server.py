@@ -9,20 +9,20 @@ import logging
 from config.config import WEB_HOST, WEB_PORT, DATABASE_PATH, BOT_USERNAME, ITEM_TYPES
 from database.models import Database
 
-# Настройка логирования
+
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
-# Создание Flask приложения
+
 app = Flask(__name__, 
             template_folder='../templates',
             static_folder='../static')
 CORS(app)
 
-# База данных
+
 db = Database(DATABASE_PATH)
 
 
@@ -38,16 +38,16 @@ def found_item(qr_id):
     """Страница найденной вещи"""
     qr_id = qr_id.upper()
     
-    # Получаем информацию о вещи
+    
     item = db.get_item_by_qr(qr_id)
     
     if not item:
         return render_template('not_found.html', qr_id=qr_id, bot_username=BOT_USERNAME)
     
-    # Получаем эмодзи для типа вещи
+    
     emoji = ITEM_TYPES.get(item['item_type'], '📦')
     
-    # Формируем ссылку на бота
+    
     bot_link = f"https://t.me/{BOT_USERNAME}?start=found_{qr_id}"
     
     return render_template('found.html', 
